@@ -1,0 +1,325 @@
+---
+title: "DSE4211-rf"
+author: "YH"
+date: "2026-03-21"
+output: html_document
+---
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+library(dplyr)
+library(lubridate)
+library(readr)
+library(tidyverse)
+library(randomForest)
+library(zoo)
+library(tseries)
+library(caret)
+```
+
+```{r}
+data <- read.csv("../../datasets/10_dropped_variables_and_renamed.csv")
+```
+
+## Forward Fill All Empty Values for CPI 
+```{r}
+df_clean <- data %>%
+  arrange(coin, week) %>%
+  mutate(week = dmy(week)) %>%
+  mutate(
+    cpi_lag1 = na.locf(cpi_lag1, na.rm = FALSE),
+    cpi_inflation_mom_lag1 = na.locf(cpi_inflation_mom_lag1, na.rm = FALSE)
+  )
+```
+
+
+## Filter out one coin
+```{r}
+df_clean_BCH <- df_clean %>%
+  filter(coin == "BCH")
+
+```
+
+## ADF Test to Check for Stationarity 
+```{r}
+list_of_non_stationary_2 <- list()
+
+df_clean_BCH_2 <- df_clean_BCH
+# Loop through each variable (excluding date)
+for (i in names(df_clean_BCH_2 %>% select(-c(1,2)))) {
+  adf_p <- tryCatch(adf.test(df_clean_BCH_2[[i]], k = 0)$p.value,
+    error = function(e) NA
+  )
+  if (!is.na(adf_p) && adf_p > 0.05) {
+    list_of_non_stationary_2 <- c(list_of_non_stationary_2, i)
+  }
+}
+
+
+# ADF test with trend
+list_of_non_stationary_trend <- list()
+for (i in 3:ncol(df_clean_BCH)) {
+  test_stat <- tryCatch(ur.df(df_clean_BCH[[i]], type = "trend", selectlags = "AIC")@teststat[1],
+    error = function(e) NA
+  )
+  critical_val <- tryCatch(ur.df(df_clean_BCH[[i]], type = "trend", selectlags = "AIC")@cval,
+    error = function(e) NA
+  )
+  if (!is.na(test_stat) && !is.na(critical_val[2]) && test_stat > critical_val[2]) {
+    list_of_non_stationary_trend <- c(list_of_non_stationary_trend, i)
+  }
+}
+
+cat("Variables non-stationary without trend:\n")
+print(unlist(list_of_non_stationary))
+cat("Variables non-stationary with trend:\n")
+print(unlist(list_of_non_stationary_trend))
+```
+
+
+## Random Forest Model - Rolling Window  
+```{r}
+runrf <- function(Y, indice, n_lags = 0, ntree, mtry) {
+  Y2 <- Y
+  
+  #Use if we want to add additional lags 
+  aux <- embed(Y2, n_lags + 1)
+  
+  # Target variable (already led, so take current column)
+  y <- aux[, indice]
+  
+  #Predictors = lagged values only (drop target column)
+  X <- aux[, -(indice)]
+  
+  #Latest observation for prediction
+  X.out <- tail(X, 1)
+  
+  # Train model
+  model <- randomForest(
+    x = X,
+    y = y,
+    #Parameter Tuning for ntree 
+    ntree = ntree,
+    importance = TRUE, 
+    mtry = mtry
+  )
+  
+  #Predict
+  pred <- predict(model, X.out)
+  
+  
+  return(list(model = model, pred = pred))
+}
+
+
+#This function will repeatedly call the previous function in the rolling window h-step forecasting
+#Inputs for the function:
+#1) Data matrix Y: includes all variables
+#2) nprev - number of out-of-sample observations (at the end of the sample)
+#3) indice - indice of the location of y var
+#4) ntree - number of trees to fit for the forest
+#5) mtry - number of predictors to for the forest 
+
+
+rf.rolling.window=function(Y,nprev,indice=1, ntree, mtry){
+  save.importance=list() #blank for saving variable importance
+  save.pred=matrix(NA,nprev,1) ##blank for forecasts
+  for(i in nprev:1){#NB: backwards FOR loop: going from 180 down to 1
+    Y.window=Y[(1+nprev-i):(nrow(Y)-i),] #define the estimation window (first one: 1 to 491, then 2 to 492 etc.)
+    rf=runrf(Y.window,indice,0,ntree, mtry) #call the function to fit the Random Forest and generate h-step forecast
+    save.pred[(1+nprev-i),]=rf$pred #save the forecast
+    save.importance[[i]]=importance(rf$model) #save variable importance
+    cat("iteration",(1+nprev-i),"\n") #display iteration number
+  }
+  
+  real=Y[,indice]#get actual values
+  #plot(real,type="l")
+  #lines(c(rep(NA,length(real)-nprev),save.pred),col="red") #padded with NA for blanks, plot predictions vs. actual
+  
+  rmse=sqrt(mean((tail(real,nprev)-save.pred)^2)) #compute RMSE
+  mae=mean(abs(tail(real,nprev)-save.pred)) #compute MAE (Mean Absolute Error)
+  errors=c("rmse"=rmse,"mae"=mae) #stack errors in a vector
+  
+  return(list("pred"=save.pred,"errors"=errors,"save.importance"=save.importance)) #return forecasts, history of variable importance, and RMSE and MAE for the period.
+}
+
+```
+
+```{r}
+#Goes through mtry and ntree and selects best ntree based on lowest RMSE on validation Set 
+rf.select_parameter = function(Y, nprev, indice = 1, parameters_ntree, parameters_mtry){
+  rmse_all <- list()
+  best_parameter <- NA 
+  lowest_rmse <- Inf 
+  for (i in parameters_ntree){
+    for (j in parameters_mtry){
+      curr_model = rf.rolling.window(Y, nprev, indice, i, j)
+      print(i)
+      rmse =curr_model$errors['rmse']
+      preds = curr_model$pred 
+      print(preds)
+      rmse_all[[as.character(i)]]=rmse
+      if (rmse <= lowest_rmse){
+        best_parameter_ntree = i 
+        best_parameter_mtry = j
+        lowest_rmse <- rmse 
+        print(lowest_rmse)
+    }
+    }
+  }
+  return(list(best_parameter_ntree, best_parameter_mtry, rmse_all))
+}
+```
+
+
+
+```{r}
+set.seed(4211)
+#Extract unique coins 
+all_coins <- c(unique(df_clean$coin))
+results_all_coins = list()
+
+#Number of train/test/valid
+train_BCH_num = nrow(df_clean_BCH %>% filter(week <= "2022-12-30") %>%
+  filter(week >= "2018-01-01"))
+
+valid_BCH_num = nrow(df_clean_BCH %>% filter(week > "2022-12-30") %>%
+  filter(week <= "2024-12-30"))
+
+test_BCH_num = nrow(df_clean_BCH %>% filter(week > "2024-12-30") %>%
+  filter(week <= "2026-01-08")) 
+
+##Loop Through Each Coin, Find best parameter for ntree using validation set, predict on test set 
+for (i in all_coins){
+  coin_remove_var <- df_clean %>%
+    filter(coin == i) 
+  
+  ## Create data for train and validation for parameter selection 
+  train_valid_df = coin_remove_var %>% filter(week <= "2024-12-30") %>%
+  filter(week >= "2018-01-01") %>%
+  select(-c("week", "coin"))
+  
+  ## Training to select parameters 
+  rf_train_data <- rf.select_parameter(as.matrix(train_valid_df), valid_BCH_num, indice = 1, c(10,1000), c(floor(47/3), 25, 35, 47))
+  best_param_ntree <- rf_train_data[[1]]
+  best_param_mtry <- rf_train_data[[2]]
+  
+  ## Create data for prediction 
+  preds_df <- coin_remove_var %>%
+    filter(week >= "2018-01-01") %>%
+    filter(week < "2026-01-09") %>%
+    tail(test_BCH_num + train_BCH_num) %>%
+    select(-c("week", "coin"))
+  
+  ## Predict model based on best parameters
+  model_preds <- rf.rolling.window(as.matrix(preds_df), test_BCH_num, indice = 1, best_param_ntree)
+  
+  results_all_coins[[i]] <- list(
+  model_preds = model_preds,
+  best_ntree = best_param_ntree,
+  best_mtry = best_param_mtry
+)
+  
+  saveRDS(results_all_coins, "results_all_coins.rds")
+  
+}
+
+
+```
+
+
+## Check for ballpark numbers for mtry 
+```{r}
+train_BCH = df_clean_BCH %>% filter(week <= "2022-12-30") %>%
+  filter(week >= "2018-01-01") %>%
+  select(-c("coin", "week"))
+
+valid_BCH = df_clean_BCH %>% filter(week > "2022-12-30") %>%
+  filter(week <= "2024-12-30") %>%
+  select(-c("coin", "week"))
+
+test_BCH = df_clean_BCH %>% filter(week > "2024-12-30") %>%
+  filter(week <= "2026-01-08") %>%
+  select(-c("coin", "week"))
+
+
+x1 = model.matrix(ret_1w ~ .-1, data = train_BCH) #training data
+x2 = model.matrix(ret_1w ~ .-1, data = valid_BCH) #validation data
+x3 = model.matrix(ret_1w ~ .-1, data = test_BCH) #test data
+y1=train_BCH$ret_1w #y for training data
+y2=valid_BCH$ret_1w  #y for validation data
+y3=test_BCH$ret_1w  # y for test data
+
+
+
+rftune=tuneRF(x1, y1, mtryStart=floor(sqrt(ncol(x1))), stepFactor=2, improve=0.05, nodesize=5, ntree=5000, doBest=TRUE, plot=FALSE, trace=FALSE) 
+rftune$mtry #tuned number of predictors
+```
+
+```{r}
+MSE <- function(pred, truth){ #start and end body of the function by { } - same as a loop 
+  return(summary(lm((truth-pred)^2~1))$coef[1:2]) #end function with a return(output) statement. Here we can go straight to return because the object of interest is a simple function of inputs
+}
+rft.pred = predict(rftune, newdata=x3)
+cbind(rft.pred, y3)
+MSE(rft.pred,y3)
+```
+
+
+```{r}
+library(car)
+
+vif_with_alias_fix <- function(formula, data, threshold = 10) {
+  # Step 1: Fit initial model
+  model <- lm(formula, data = data)
+  
+  # Step 2: Detect aliased (perfectly collinear) variables
+  aliased <- alias(model)$Complete
+  removed_vars <- rownames(aliased)
+  
+  if (length(removed_vars) > 0) {
+    cat("Removed aliased variables:\n")
+    print(removed_vars)
+    
+    # Remove them from the dataset
+    data <- data[, !colnames(data) %in% removed_vars]
+    
+    # Refit model
+    model <- lm(formula, data = data)
+  } else {
+    cat("No aliased variables detected.\n")
+  }
+  
+  # Step 3: Compute VIFs
+  vifs <- vif(model)
+  
+  # Step 4: Print variables with VIF > threshold
+  high_vif <- vifs[vifs > threshold]
+  if (length(high_vif) == 0) {
+    cat("No variables with VIF >", threshold, "\n")
+  } else {
+    cat("Variables with VIF >", threshold, ":\n")
+    print(high_vif)
+  }
+  
+  # Step 5: Return model and removed variables
+  return(list(model = model, removed_alias = removed_vars, high_vif = high_vif))
+}
+
+
+```
+
+
+
+
+
+
+
+
+
+
