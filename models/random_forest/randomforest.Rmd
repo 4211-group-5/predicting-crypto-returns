@@ -76,7 +76,7 @@ for (i in 3:ncol(df_clean_BCH)) {
 }
 
 cat("Variables non-stationary without trend:\n")
-print(unlist(list_of_non_stationary))
+print(unlist(list_of_non_stationary_2))
 cat("Variables non-stationary with trend:\n")
 print(unlist(list_of_non_stationary_trend))
 ```
