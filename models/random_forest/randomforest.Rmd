@@ -217,7 +217,7 @@ for (i in all_coins){
     select(-c("week", "coin"))
   
   ## Predict model based on best parameters
-  model_preds <- rf.rolling.window(as.matrix(preds_df), test_BCH_num, indice = 1, best_param_ntree)
+  model_preds <- rf.rolling.window(as.matrix(preds_df), test_BCH_num, indice = 1, best_param_ntree, best_param_mtry)
   
   results_all_coins[[i]] <- list(
   model_preds = model_preds,
