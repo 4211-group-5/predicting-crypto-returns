@@ -1,4 +1,3 @@
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from pmdarima import auto_arima
@@ -6,7 +5,7 @@ import statsmodels.api as sm
 
 def main():
     data_path = '../datasets/10_dropped_variables_and_renamed.csv'
-    results_folder = '../results/ARIMAX/'
+    results_folder = '../results/arima/'
     
     # Loading data from data_path
     df = pd.read_csv(data_path)
@@ -19,7 +18,7 @@ def main():
     test_end = pd.to_datetime('2026-01-08')
     
     target_col = 'ret_1w'
-    exclude_cols = ['coin', 'week', 'ret_1w']
+    exclude_cols = ['coin', 'week', 'ret_1w', 'ret_1w_original']
     feature_cols = [col for col in df.columns if col not in exclude_cols]
     
     # Get unique coins in the dataset
@@ -31,11 +30,12 @@ def main():
         print(f"\nProcessing {coin}...")
         df_coin = df[df['coin'] == coin].sort_values('week').set_index('week')
         
-        # Historical data (Train + Valid)
+        # Train + Valid
         train_data = df_coin[df_coin.index <= train_valid_end][target_col]
-        test_data = df_coin[(df_coin.index >= test_start) & (df_coin.index <= test_end)][target_col]
-
         train_exog = df_coin[df_coin.index <= train_valid_end][feature_cols]
+
+        # Test
+        test_data = df_coin[(df_coin.index >= test_start) & (df_coin.index <= test_end)][target_col]
         test_exog = df_coin[(df_coin.index >= test_start) & (df_coin.index <= test_end)][feature_cols]
 
         if not len(train_data) or not len(test_data):
@@ -101,9 +101,9 @@ def main():
             results.append({
                 'coin': coin,
                 'week': dt,
-                'actual_ret_1w': actual,
-                'predicted_ret_1w': pred,
-                'mse': (actual - pred) ** 2
+                'actual': actual,
+                'prediction': pred,
+                'residual': actual - pred
             })
             
             # Update history with the actual observed value for the next step's window
@@ -113,43 +113,27 @@ def main():
         if results:
             results_df = pd.DataFrame(results)
             # Save results to output_path
-            results_df.to_csv(f"{results_folder}arimax_forecast_results.csv", index=False)
+            results_df.to_csv(f"{results_folder}arima_forecast_residuals.csv", index=False)
         
     # Drop rows with NaN predictions
-    results_df_clean = results_df.dropna(subset=['mse'])
+    results_df_clean = results_df.dropna(subset=['residual'])
 
     # Overall RMSE
     rmse_overall = np.sqrt(np.mean(
-        results_df_clean['mse']
+        results_df_clean['residual']**2
     ))
     print(f"\nOverall RMSE: {rmse_overall:.6f}")
 
     # RMSE per coin
     rmse_per_coin = results_df_clean.groupby('coin').apply(
-        lambda x: np.sqrt(np.mean((x['mse'])))
+        lambda x: np.sqrt(np.mean((x['residual']**2)))
     ).reset_index(name='RMSE')
 
     print("\nRMSE per coin:")
     print(rmse_per_coin)
 
     # Save RMSE results
-    rmse_per_coin.to_csv(f"{results_folder}arimax_rmse_per_coin.csv", index=False)
-
-    # Save actual vs predicted plot for each coin
-    for coin in coins:
-        coin_results = results_df[results_df['coin'] == coin]
-        if not coin_results.empty:
-            plt.figure(figsize=(10, 5))
-            plt.plot(coin_results['week'], coin_results['actual_ret_1w'], label='Actual', marker='o')
-            plt.plot(coin_results['week'], coin_results['predicted_ret_1w'], label='Predicted', marker='x')
-            plt.title(f'ARIMAX Forecast vs Actual for {coin}')
-            plt.xlabel('Week')
-            plt.ylabel('Return 1 Week')
-            plt.legend()
-            plt.xticks(rotation=45)
-            plt.tight_layout()
-            plt.savefig(f"{results_folder}{coin}_arimax_forecast.png")
-            plt.close()
+    rmse_per_coin.to_csv(f"{results_folder}arima_rmse_per_coin.csv", index=False)
 
 if __name__ == '__main__':
     main()
