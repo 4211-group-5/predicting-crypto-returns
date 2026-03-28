@@ -32,7 +32,6 @@ def main():
     for folder in model_folders:
         current_model_folder = folder
         current_model_name = os.path.basename(folder)
-        print(current_model_name)
 
         # get file with residual in name
         data_path = list(Path(current_model_folder).glob('*residuals.csv'))[0]
