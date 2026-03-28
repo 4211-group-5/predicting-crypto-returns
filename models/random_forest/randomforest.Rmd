@@ -20,10 +20,12 @@ library(randomForest)
 library(zoo)
 library(tseries)
 library(caret)
+library(foreach)
+library(doParallel)
 ```
 
 ```{r}
-data <- read.csv("../../datasets/10_dropped_variables_and_renamed.csv")
+data <- read.csv("crypto_data/10_dropped_variables_and_renamed.csv")
 ```
 
 ## Forward Fill All Empty Values for CPI 
@@ -34,7 +36,8 @@ df_clean <- data %>%
   mutate(
     cpi_lag1 = na.locf(cpi_lag1, na.rm = FALSE),
     cpi_inflation_mom_lag1 = na.locf(cpi_inflation_mom_lag1, na.rm = FALSE)
-  )
+  ) %>%
+  select(-ret_1w_original)
 ```
 
 
@@ -76,7 +79,7 @@ for (i in 3:ncol(df_clean_BCH)) {
 }
 
 cat("Variables non-stationary without trend:\n")
-print(unlist(list_of_non_stationary_2))
+print(unlist(list_of_non_stationary))
 cat("Variables non-stationary with trend:\n")
 print(unlist(list_of_non_stationary_trend))
 ```
@@ -85,33 +88,25 @@ print(unlist(list_of_non_stationary_trend))
 ## Random Forest Model - Rolling Window  
 ```{r}
 runrf <- function(Y, indice, n_lags = 0, ntree, mtry) {
-  Y2 <- Y
+
+  y <- Y[, indice]
+  X <- Y[, -indice]
   
-  #Use if we want to add additional lags 
-  aux <- embed(Y2, n_lags + 1)
+  # Split into train vs prediction point
+  X.train <- X[-nrow(X), ]
+  y.train <- y[-length(y)]
   
-  # Target variable (already led, so take current column)
-  y <- aux[, indice]
+  X.out <- matrix(X[nrow(X), ], nrow = 1)
   
-  #Predictors = lagged values only (drop target column)
-  X <- aux[, -(indice)]
-  
-  #Latest observation for prediction
-  X.out <- tail(X, 1)
-  
-  # Train model
   model <- randomForest(
-    x = X,
-    y = y,
-    #Parameter Tuning for ntree 
+    x = X.train,
+    y = y.train,
     ntree = ntree,
-    importance = TRUE, 
+    importance = TRUE,
     mtry = mtry
   )
   
-  #Predict
   pred <- predict(model, X.out)
-  
   
   return(list(model = model, pred = pred))
 }
@@ -129,13 +124,14 @@ runrf <- function(Y, indice, n_lags = 0, ntree, mtry) {
 rf.rolling.window=function(Y,nprev,indice=1, ntree, mtry){
   save.importance=list() #blank for saving variable importance
   save.pred=matrix(NA,nprev,1) ##blank for forecasts
-  for(i in nprev:1){#NB: backwards FOR loop: going from 180 down to 1
+  for(i in nprev:1){#NB: backwards FOR loop: going from 105 down to 1
     Y.window=Y[(1+nprev-i):(nrow(Y)-i),] #define the estimation window (first one: 1 to 491, then 2 to 492 etc.)
     rf=runrf(Y.window,indice,0,ntree, mtry) #call the function to fit the Random Forest and generate h-step forecast
     save.pred[(1+nprev-i),]=rf$pred #save the forecast
     save.importance[[i]]=importance(rf$model) #save variable importance
     cat("iteration",(1+nprev-i),"\n") #display iteration number
   }
+  
   
   real=Y[,indice]#get actual values
   #plot(real,type="l")
@@ -179,7 +175,99 @@ rf.select_parameter = function(Y, nprev, indice = 1, parameters_ntree, parameter
 
 
 ```{r}
+library(foreach)
+library(doParallel)
+library(doSNOW)
+
 set.seed(4211)
+
+# Setup cluster
+n_cores <- parallel::detectCores() - 1
+cl <- makeCluster(n_cores)
+registerDoSNOW(cl)
+
+# Export functions + data
+clusterExport(cl, c("runrf", "rf.rolling.window", "rf.select_parameter",
+                    "df_clean", "valid_BCH_num", "test_BCH_num", "train_BCH_num"))
+
+clusterSetRNGStream(cl, 4211)
+
+# Progress bar
+pb <- txtProgressBar(max = length(all_coins), style = 3)
+progress <- function(n) setTxtProgressBar(pb, n)
+opts <- list(progress = progress)
+
+# Parallel loop
+results_all_coins <- foreach(
+  i = all_coins,
+  .packages = c("dplyr", "randomForest"),
+  .options.snow = opts
+) %dopar% {
+
+  coin_remove_var <- df_clean %>%
+    filter(coin == i) 
+  
+  ## Train + validation data
+  train_valid_df <- coin_remove_var %>%
+    filter(week <= "2024-12-30") %>%
+    filter(week >= "2018-01-01") %>%
+    arrange(week) %>%
+    select(-c("week", "coin"))
+  
+  ## Parameter tuning
+  rf_train_data <- rf.select_parameter(
+    as.matrix(train_valid_df),
+    valid_BCH_num,
+    indice = 1,
+    c(50,200,500,1000,5000),
+    c(1,3,7,15,25)
+  )
+  
+  best_param_ntree <- rf_train_data[[1]]
+  best_param_mtry  <- rf_train_data[[2]]
+  
+  ## Prediction data
+  preds_df <- coin_remove_var %>%
+    filter(week >= "2018-01-01") %>%
+    filter(week < "2026-01-09") %>%
+    arrange(week) %>%
+    tail(test_BCH_num + train_BCH_num) %>%
+    select(-c("week", "coin"))
+  
+  ## Rolling prediction
+  model_preds <- rf.rolling.window(
+    as.matrix(preds_df),
+    test_BCH_num,
+    indice = 1,
+    best_param_ntree,
+    best_param_mtry
+  )
+  
+  result <- list(
+    model_preds = model_preds,
+    best_ntree = best_param_ntree,
+    best_mtry = best_param_mtry
+  )
+  
+  # ✅ SAFE checkpoint save (one file per coin)
+  saveRDS(result, paste0("temp_result_", i, ".rds"))
+  
+  result
+}
+
+# Stop cluster
+stopCluster(cl)
+close(pb)
+
+# Name results
+results_all_coins <- setNames(results_all_coins, all_coins)
+
+# Final save
+saveRDS(results_all_coins, "results_all_coins_15000.rds")
+```
+
+
+```{r}
 #Extract unique coins 
 all_coins <- c(unique(df_clean$coin))
 results_all_coins = list()
@@ -202,10 +290,11 @@ for (i in all_coins){
   ## Create data for train and validation for parameter selection 
   train_valid_df = coin_remove_var %>% filter(week <= "2024-12-30") %>%
   filter(week >= "2018-01-01") %>%
+  arrange(week) %>%
   select(-c("week", "coin"))
   
   ## Training to select parameters 
-  rf_train_data <- rf.select_parameter(as.matrix(train_valid_df), valid_BCH_num, indice = 1, c(10,1000), c(floor(47/3), 25, 35, 47))
+  rf_train_data <- rf.select_parameter(as.matrix(train_valid_df), valid_BCH_num, indice = 1, c(10,50,100,200,500,1000,5000), c(1,3,7,floor(47/3)))
   best_param_ntree <- rf_train_data[[1]]
   best_param_mtry <- rf_train_data[[2]]
   
@@ -213,6 +302,7 @@ for (i in all_coins){
   preds_df <- coin_remove_var %>%
     filter(week >= "2018-01-01") %>%
     filter(week < "2026-01-09") %>%
+    arrange(week) %>%
     tail(test_BCH_num + train_BCH_num) %>%
     select(-c("week", "coin"))
   
@@ -225,7 +315,7 @@ for (i in all_coins){
   best_mtry = best_param_mtry
 )
   
-  saveRDS(results_all_coins, "results_all_coins.rds")
+  saveRDS(results_all_coins, "results_all_coins_5.rds")
   
 }
 
@@ -257,7 +347,7 @@ y3=test_BCH$ret_1w  # y for test data
 
 
 
-rftune=tuneRF(x1, y1, mtryStart=floor(sqrt(ncol(x1))), stepFactor=2, improve=0.05, nodesize=5, ntree=5000, doBest=TRUE, plot=FALSE, trace=FALSE) 
+rftune=tuneRF(x1, y1, mtryStart=floor(sqrt(ncol(x1))), stepFactor=2, improve=0.05, nodesize=5, ntree=500, doBest=TRUE, plot=FALSE, trace=FALSE) 
 rftune$mtry #tuned number of predictors
 ```
 
@@ -313,6 +403,49 @@ vif_with_alias_fix <- function(formula, data, threshold = 10) {
 
 
 ```
+
+
+
+```{r}
+df_preds <- data.frame()
+for (i in all_coins){
+  #print(i)
+  df_preds_temp <- data.frame(prediction = results_all_coins[[i]]$model_preds$pred) 
+  
+  df_actual <- df_clean %>%
+    filter(coin == i) %>%
+    arrange(week) %>%
+    tail(53) %>%
+    select(coin,week, ret_1w) %>%
+    rename(actual = ret_1w)
+  
+  df_temp <- cbind(df_actual,df_preds_temp) %>%
+    mutate(residual = actual - prediction)
+  
+  df_preds <- rbind(df_temp, df_preds)
+  
+}
+
+rownames(df_preds) <- NULL
+
+write.csv(df_preds, "rf_coin_residuals.csv")
+```
+
+```{r}
+df_rmse <- data.frame()
+
+for (i in all_coins){
+  df_temp_rmse <- data.frame(rmse = results_all_coins[[i]]$model_preds$errors[1], mae =  results_all_coins[[i]]$model_preds$errors[2]) %>%
+    mutate(coin = i) %>%
+    select(coin, rmse, mae)
+  df_rmse <- rbind(df_temp_rmse, df_rmse)
+}
+
+rownames(df_rmse) <- NULL
+
+write.csv(df_rmse, "rf_coin_summary.csv")
+```
+
 
 
 
