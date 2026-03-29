@@ -22,10 +22,11 @@ library(tseries)
 library(caret)
 library(foreach)
 library(doParallel)
+library(fastshap)
 ```
 
 ```{r}
-data <- read.csv("crypto_data/10_dropped_variables_and_renamed.csv")
+data <- read.csv("../../datasets/10_dropped_variables_and_renamed.csv")
 ```
 
 ## Forward Fill All Empty Values for CPI 
@@ -112,6 +113,79 @@ runrf <- function(Y, indice, n_lags = 0, ntree, mtry) {
 }
 
 
+runrf_shap <- function(Y, indice, n_lags = 0, ntree, mtry) {
+
+  y <- Y[, indice]
+  X <- Y[, -indice]
+  
+  # Train / test split
+  X.train <- X[-nrow(X), ]
+  y.train <- y[-length(y)]
+  
+  X.out <- X[nrow(X), , drop = FALSE]
+  
+  model <- randomForest(
+    x = X.train,
+    y = y.train,
+    ntree = ntree,
+    importance = TRUE,
+    mtry = mtry
+  )
+  
+  pred <- predict(model, X.out)
+  
+  # ---- SHAP computation ----
+  shap_values <- fastshap::explain(
+    object = model,
+    X = X.train,
+    newdata = X.out,
+    pred_wrapper = function(object, newdata) {
+      predict(object, newdata)
+    },
+    nsim = 50  # increase (e.g. 100–500) for more stable estimates
+  )
+  
+  return(list(
+    model = model,
+    pred = pred,
+    shap = shap_values
+  ))
+}
+
+rf.rolling.window_shap =function(Y,nprev,indice=1, ntree, mtry){
+  save.importance=list()
+  save.pred=matrix(NA,nprev,1)
+  save.shap=list()   # NEW
+  
+  for(i in nprev:1){
+    Y.window=Y[(1+nprev-i):(nrow(Y)-i),]
+    
+    rf=runrf_shap(Y.window,indice,0,ntree, mtry)
+    
+    idx = (1+nprev-i)
+    
+    save.pred[idx,]=rf$pred
+    save.importance[[i]]=importance(rf$model)
+    save.shap[[idx]] = rf$shap   # store SHAP
+    
+    cat("iteration", idx,"\n")
+  }
+  
+  real=Y[,indice]
+  
+  rmse=sqrt(mean((tail(real,nprev)-save.pred)^2))
+  mae=mean(abs(tail(real,nprev)-save.pred))
+  
+  errors=c("rmse"=rmse,"mae"=mae)
+  
+  return(list(
+    #pred=save.pred,
+    #errors=errors,
+    save.importance=save.importance,
+    shap_values = save.shap   
+  ))
+}
+
 #This function will repeatedly call the previous function in the rolling window h-step forecasting
 #Inputs for the function:
 #1) Data matrix Y: includes all variables
@@ -173,6 +247,33 @@ rf.select_parameter = function(Y, nprev, indice = 1, parameters_ntree, parameter
 ```
 
 
+## Check for ballpark numbers for mtry 
+```{r}
+train_BCH = df_clean_BCH %>% filter(week <= "2022-12-30") %>%
+  filter(week >= "2018-01-01") %>%
+  select(-c("coin", "week"))
+
+valid_BCH = df_clean_BCH %>% filter(week > "2022-12-30") %>%
+  filter(week <= "2024-12-30") %>%
+  select(-c("coin", "week"))
+
+test_BCH = df_clean_BCH %>% filter(week > "2024-12-30") %>%
+  filter(week <= "2026-01-08") %>%
+  select(-c("coin", "week"))
+
+
+x1 = model.matrix(ret_1w ~ .-1, data = train_BCH) #training data
+x2 = model.matrix(ret_1w ~ .-1, data = valid_BCH) #validation data
+x3 = model.matrix(ret_1w ~ .-1, data = test_BCH) #test data
+y1=train_BCH$ret_1w #y for training data
+y2=valid_BCH$ret_1w  #y for validation data
+y3=test_BCH$ret_1w  # y for test data
+
+
+
+rftune=tuneRF(x1, y1, mtryStart=floor(sqrt(ncol(x1))), stepFactor=2, improve=0.05, nodesize=5, ntree=500, doBest=TRUE, plot=FALSE, trace=FALSE) 
+rftune$mtry #tuned number of predictors
+```
 
 ```{r}
 library(foreach)
@@ -180,6 +281,20 @@ library(doParallel)
 library(doSNOW)
 
 set.seed(4211)
+
+#Extract unique coins 
+all_coins <- c(unique(df_clean$coin))
+results_all_coins = list()
+
+#Number of train/test/valid
+train_BCH_num = nrow(df_clean_BCH %>% filter(week <= "2022-12-30") %>%
+  filter(week >= "2018-01-01"))
+
+valid_BCH_num = nrow(df_clean_BCH %>% filter(week > "2022-12-30") %>%
+  filter(week <= "2024-12-30"))
+
+test_BCH_num = nrow(df_clean_BCH %>% filter(week > "2024-12-30") %>%
+  filter(week <= "2026-01-08")) 
 
 # Setup cluster
 n_cores <- parallel::detectCores() - 1
@@ -266,6 +381,46 @@ results_all_coins <- setNames(results_all_coins, all_coins)
 saveRDS(results_all_coins, "results_all_coins_15000.rds")
 ```
 
+```{r}
+set.seed(4211)
+best_results <- readRDS("results_all_coins_15000.rds")
+
+for (i in names(best_results)){
+  best_mtry <- best_results[[i]][['best_mtry']]
+  best_ntree <- best_results[[i]][['best_ntree']]
+  
+   ## Prediction data
+  preds_df <- df_clean %>%
+    filter(coin == i) %>%
+    filter(week >= "2018-01-01") %>%
+    filter(week < "2026-01-09") %>%
+    arrange(week) %>%
+    tail(test_BCH_num + train_BCH_num) %>%
+    select(-c("week", "coin"))
+  
+  ## Rolling prediction
+  model_preds <- rf.rolling.window_shap(
+    as.matrix(preds_df),
+    test_BCH_num,
+    indice = 1,
+    best_ntree,
+    best_mtry
+  )
+  
+  ## SHAP Values 
+   result <- list(
+    model_preds = model_preds,
+    best_ntree = best_ntree,
+    best_mtry = best_mtry
+  )
+   
+   saveRDS(result, paste0("temp_result_shap", i, ".rds"))
+  
+  
+  
+}
+```
+
 
 ```{r}
 #Extract unique coins 
@@ -322,34 +477,6 @@ for (i in all_coins){
 
 ```
 
-
-## Check for ballpark numbers for mtry 
-```{r}
-train_BCH = df_clean_BCH %>% filter(week <= "2022-12-30") %>%
-  filter(week >= "2018-01-01") %>%
-  select(-c("coin", "week"))
-
-valid_BCH = df_clean_BCH %>% filter(week > "2022-12-30") %>%
-  filter(week <= "2024-12-30") %>%
-  select(-c("coin", "week"))
-
-test_BCH = df_clean_BCH %>% filter(week > "2024-12-30") %>%
-  filter(week <= "2026-01-08") %>%
-  select(-c("coin", "week"))
-
-
-x1 = model.matrix(ret_1w ~ .-1, data = train_BCH) #training data
-x2 = model.matrix(ret_1w ~ .-1, data = valid_BCH) #validation data
-x3 = model.matrix(ret_1w ~ .-1, data = test_BCH) #test data
-y1=train_BCH$ret_1w #y for training data
-y2=valid_BCH$ret_1w  #y for validation data
-y3=test_BCH$ret_1w  # y for test data
-
-
-
-rftune=tuneRF(x1, y1, mtryStart=floor(sqrt(ncol(x1))), stepFactor=2, improve=0.05, nodesize=5, ntree=500, doBest=TRUE, plot=FALSE, trace=FALSE) 
-rftune$mtry #tuned number of predictors
-```
 
 ```{r}
 MSE <- function(pred, truth){ #start and end body of the function by { } - same as a loop 
