@@ -1,0 +1,451 @@
+---
+stitle: "Eval_R2"
+author: "YH"
+date: "2026-03-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(zoo)
+library(lubridate)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+```{r}
+actual_data <- read.csv("crypto_data/10_dropped_variables_and_renamed.csv")
+```
+
+```{r}
+coin_expanding_window_predict <- actual_data %>%
+  group_by(coin) %>%
+  mutate(week = dmy(week)) %>%
+  arrange(week) %>% 
+  filter(week > as.Date("2018-01-01")) %>% 
+  mutate(
+    # Calculate expanding mean (average of all data up to t-1)
+    # We use lag() because at week T, you can only know the mean of weeks 1 to T-1
+    expanding_mean_y_1 = (cummean(ret_1w_ago))
+  ) %>%
+  ungroup() %>%
+  mutate(expanding_mean_y = slider::slide_dbl(ret_1w_ago, mean, .before = 200, .after = 0)) %>%
+  # Your specific OOS test period
+  filter(week <= as.Date("2026-01-08"))
+
+# View result
+bch <- coin_expanding_window_predict %>%
+  filter(coin == "BCH")
+
+```
+
+```{r}
+calculate_r_square <- function(pred, actual, mean){
+  1 - ((sum((actual - pred)^2)) / (sum((actual - mean)^2)))
+}
+
+calculate_rmse <- function(pred, actual){
+  sqrt(sum((actual-pred)^2))
+}
+```
+
+```{r}
+#pred <- (rf_data %>% filter(coin == "BTC"))$prediction
+#actual <- (rf_data %>% filter(coin == "BTC"))$actual
+
+#pred_actual_error <- sqrt(mean((pred-actual)^2))
+
+#sqrt(mean((actual)^2))
+
+```
+
+## Arima
+```{r}
+arima_data <- read.csv("Predictions/arima_forecast_residuals.csv")
+
+unique_coins <- arima_data$coin %>%
+  unique()
+
+
+all_r_squared <- list()
+
+for (i in unique_coins){
+  
+  coin_data <- arima_data %>%
+    filter(coin == i) %>%
+    mutate(week = ymd(week))
+  
+  rolling_data <- coin_expanding_window_predict %>%
+    filter(coin == i) %>%
+    select(week, expanding_mean_y)
+  
+  merged <- coin_data %>%
+    left_join(rolling_data, by = c("week" = "week"))
+  
+  r_squared_temp <- calculate_r_square(
+    merged$prediction,
+    merged$actual, 
+    merged$expanding_mean_y
+  )
+  
+  
+  all_r_squared[["arima"]][[i]] <- r_squared_temp
+}
+
+merged_all <- arima_data %>%
+  mutate(week = ymd(week)) %>%
+  left_join(coin_expanding_window_predict, by = c("coin", "week"))
+
+r_squared_temp <- calculate_r_square(
+    merged_all$prediction,
+    merged_all$actual, 
+    merged_all$expanding_mean_y)
+
+all_r_squared[['arima']][['all']] <- r_squared_temp 
+```
+
+## Random Forest
+```{r}
+rf_data <- read.csv("Predictions/rf_coin_residuals.csv")
+
+unique_coins <- rf_data$coin %>%
+  unique()
+
+for (i in unique_coins){
+  
+  coin_data <- rf_data %>%
+    filter(coin == i) %>%
+    mutate(week = ymd(week))
+  
+  rolling_data <- coin_expanding_window_predict %>%
+    filter(coin == i) %>%
+    select(week, expanding_mean_y)
+  
+  merged <- coin_data %>%
+    left_join(rolling_data, by = c("week" = "week"))
+  
+  r_squared_temp <- calculate_r_square(
+    merged$prediction,
+    merged$actual, 
+    merged$expanding_mean_y
+  )
+  
+  all_r_squared[["random_forest"]][[i]] <- r_squared_temp
+}
+
+merged_all <- rf_data %>%
+  mutate(week = ymd(week)) %>%
+  left_join(coin_expanding_window_predict, by = c("coin", "week"))
+
+r_squared_temp <- calculate_r_square(
+    merged_all$prediction,
+    merged_all$actual, 
+    merged_all$expanding_mean_y)
+
+all_r_squared[['random_forest']][['all']] <- r_squared_temp 
+```
+
+## Panel Data 
+```{r}
+pd_data <- read.csv("Predictions/panel_fe_residuals.csv")
+
+unique_coins <- pd_data$coin %>%
+  unique()
+
+for (i in unique_coins){
+  
+  coin_data <- pd_data %>%
+    filter(coin == i) %>%
+    mutate(week = dmy(week))
+  
+  rolling_data <- coin_expanding_window_predict %>%
+    filter(coin == i) %>%
+    select(week, expanding_mean_y)
+  
+  merged <- coin_data %>%
+    left_join(rolling_data, by = c("week" = "week"))
+  
+  r_squared_temp <- calculate_r_square(
+    merged$prediction,
+    merged$actual, 
+    merged$expanding_mean_y
+  )
+  
+  all_r_squared[["panel_fe"]][[i]] <- r_squared_temp
+}
+
+merged_all <- pd_data %>%
+  mutate(week = dmy(week)) %>%
+  left_join(coin_expanding_window_predict, by = c("coin", "week"))
+
+r_squared_temp <- calculate_r_square(
+    merged_all$prediction,
+    merged_all$actual, 
+    merged_all$expanding_mean_y)
+
+all_r_squared[['panel_fe']][['all']] <- r_squared_temp 
+```
+
+```{r}
+ols_data <- read.csv("Predictions/OLS_residuals.csv")
+
+unique_coins <- ols_data$coin %>%
+  unique()
+
+for (i in unique_coins){
+  
+  coin_data <- ols_data %>%
+    filter(coin == i) %>%
+    mutate(week = dmy(week))
+  
+  rolling_data <- coin_expanding_window_predict %>%
+    filter(coin == i) %>%
+    select(week, expanding_mean_y)
+  
+  merged <- coin_data %>%
+    left_join(rolling_data, by = c("week" = "week"))
+  
+  r_squared_temp <- calculate_r_square(
+    merged$prediction,
+    merged$actual, 
+    merged$expanding_mean_y
+  )
+  
+  all_r_squared[["ols"]][[i]] <- r_squared_temp
+}
+
+merged_all <- ols_data %>%
+  mutate(week = dmy(week)) %>%
+  left_join(coin_expanding_window_predict, by = c("coin", "week"))
+
+r_squared_temp <- calculate_r_square(
+    merged_all$prediction,
+    merged_all$actual, 
+    merged_all$expanding_mean_y)
+
+all_r_squared[['ols']][['all']] <- r_squared_temp 
+```
+
+
+## PLS
+```{r}
+
+files <- list.files("Predictions/predictions", pattern = "\\.xlsx$", full.names = TRUE)
+data_list <- lapply(files, read_excel)
+
+pls_data <- data.frame()
+for (i in 1: length(data_list)){
+   
+  coin_data <- data_list[[i]] %>%
+    mutate(week = ymd(week)) 
+  
+  pls_data <- rbind(coin_data, pls_data)
+
+}
+
+for (i in 1: length(data_list)){
+   
+  coin_data <- data_list[[i]] %>%
+    mutate(week = ymd(week)) 
+  
+  coin_curr <- data_list[[i]]$coin[1]
+  
+  
+  rolling_data <- coin_expanding_window_predict %>%
+    filter(coin == coin_curr) %>%
+    select(week, expanding_mean_y) 
+  
+  merged <- coin_data %>%
+    left_join(rolling_data, by = c("week" = "week"))
+  
+   r_squared_temp <- calculate_r_square(
+    merged$pred,
+    merged$actual, 
+    merged$expanding_mean_y
+  )
+   
+   
+   
+   all_r_squared[["pls"]][[coin_curr]] <- r_squared_temp
+
+}
+
+merged_all <- pls_data %>%
+  left_join(coin_expanding_window_predict, by = c("coin", "week"))
+
+r_squared_temp <- calculate_r_square(
+    merged_all$pred,
+    merged_all$actual, 
+    merged_all$expanding_mean_y)
+
+all_r_squared[['pls']][['all']] <- r_squared_temp 
+```
+
+```{r}
+df <- bind_rows(
+  lapply(names(all_r_squared), function(model) {
+    data.frame(
+      coin = names(all_r_squared[[model]]),
+      r_squared = unlist(all_r_squared[[model]]),
+      model = model
+    )
+  })
+) %>%
+  pivot_wider(names_from = model, values_from = r_squared)
+```
+
+```{r}
+
+```
+
+
+```{r}
+write.csv(df, "df_r_squared.csv")
+```
+
+
+```{r}
+arima_data <- read.csv("Predictions/arima_forecast_residuals.csv")
+
+unique_coins <- arima_data$coin %>%
+  unique()
+
+
+rmse_all <- list()
+
+for (i in unique_coins){
+  data_temp <- arima_data %>%
+    filter(coin == i)
+  rmse <- sqrt(mean((data_temp$actual - data_temp$prediction)^2))
+  
+  rmse_all[["arima"]][[i]] <- rmse
+}
+
+rmse_temp <- sqrt(mean((arima_data$actual - arima_data$prediction)^2))
+rmse_all[["arima"]][["all"]] <- rmse_temp
+```
+
+## Random Forest
+```{r}
+rf_data <- read.csv("Predictions/rf_coin_residuals.csv")
+
+unique_coins <- rf_data$coin %>%
+  unique()
+
+for (i in unique_coins){
+  data_temp <- rf_data %>%
+    filter(coin == i)
+  rmse <- sqrt(mean((data_temp$actual - data_temp$prediction)^2))
+  
+  rmse_all[["rf"]][[i]] <- rmse
+}
+
+rmse_temp <- sqrt(mean((rf_data$actual - rf_data$prediction)^2))
+rmse_all[["rf"]][["all"]] <- rmse_temp
+```
+
+## Panel Data 
+```{r}
+pd_data <- read.csv("Predictions/panel_fe_residuals.csv")
+
+unique_coins <- pd_data$coin %>%
+  unique()
+
+for (i in unique_coins){
+  data_temp <- pd_data %>%
+    filter(coin == i)
+  rmse <- sqrt(mean((data_temp$actual - data_temp$prediction)^2))
+  
+  rmse_all[["pd"]][[i]] <- rmse
+}
+
+rmse_temp <- sqrt(mean((pd_data$actual - pd_data$prediction)^2))
+rmse_all[["pd"]][["all"]] <- rmse_temp
+
+```
+
+```{r}
+ols_data <- read.csv("Predictions/OLS_residuals.csv")
+
+unique_coins <- pd_data$coin %>%
+  unique()
+
+for (i in unique_coins){
+  data_temp <- ols_data %>%
+    filter(coin == i)
+  rmse <- sqrt(mean((data_temp$actual - data_temp$prediction)^2))
+  
+  rmse_all[["ols"]][[i]] <- rmse
+  
+}
+
+rmse_temp <- sqrt(mean((ols_data$actual - ols_data$prediction)^2))
+rmse_all[["ols"]][["all"]] <- rmse_temp
+
+```
+
+
+## PLS
+```{r}
+
+files <- list.files("Predictions/predictions", pattern = "\\.xlsx$", full.names = TRUE)
+data_list <- lapply(files, read_excel)
+
+pls_data <- data.frame()
+for (i in 1: length(data_list)){
+   
+  coin_data <- data_list[[i]] %>%
+    mutate(week = ymd(week)) 
+  
+  pls_data <- rbind(coin_data, pls_data)
+
+}
+
+for (i in unique_coins){
+  data_temp <- pls_data %>%
+    filter(coin == i)
+  rmse <- sqrt(mean((data_temp$actual - data_temp$pred)^2))
+  
+  rmse_all[["pls"]][[i]] <- rmse
+  
+}
+rmse_temp <- sqrt(mean((pls_data$actual - pls_data$pred)^2))
+rmse_all[["pls"]][["all"]] <- rmse_temp
+
+```
+
+```{r}
+df_rmse <- bind_rows(
+  lapply(names(rmse_all), function(model) {
+    data.frame(
+      coin = names(rmse_all[[model]]),
+      rmse = unlist(rmse_all[[model]]),
+      model = model
+    )
+  })
+) %>%
+  pivot_wider(names_from = model, values_from = rmse) 
+```
+
+```{r}
+
+```
+
+
+```{r}
+write.csv(df_rmse, "df_r_rmse.csv")
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
