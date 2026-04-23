@@ -2,8 +2,7 @@ import pandas as pd
 import numpy as np
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 
-
-df = pd.read_csv("9_final_outlier_removed_dataset.csv")
+df = pd.read_csv("datasets/9_final_outlier_removed_dataset.csv")
 
 print("Dataset loaded.")
 print("Shape:", df.shape)
@@ -17,7 +16,7 @@ print("\nNumeric columns found:", len(X.columns))
 print(X.columns.tolist())
 
 
-#EXCLUDE TARGET / NON-PREDICTOR COLUMNS
+# EXCLUDE TARGET / NON-PREDICTOR COLUMNS
 
 
 exclude_cols = [
@@ -49,7 +48,7 @@ if constant_cols:
     X = X.drop(columns=constant_cols)
 
 
-#CLEAN MISSING / INF VALUES
+# CLEAN MISSING / INF VALUES
 
 X = X.replace([np.inf, -np.inf], np.nan)
 
@@ -79,7 +78,7 @@ if to_drop:
 print("\nFinal columns used for VIF:", len(X.columns))
 
 
-#CALCULATE VIF
+# CALCULATE VIF
 
 vif_data = pd.DataFrame()
 vif_data["variable"] = X.columns
@@ -88,7 +87,7 @@ vif_data["VIF"] = [variance_inflation_factor(X.values, i) for i in range(X.shape
 vif_data = vif_data.sort_values(by="VIF", ascending=False)
 
 
-output_path = r"c:\Users\hai liang\Downloads\acro\vif_results.csv"
+output_path = "data extraction/vif_results.csv"
 vif_data.to_csv(output_path, index=False)
 
 print("\nTop 30 VIF results:")

@@ -1,6 +1,6 @@
 import pandas as pd
 
-daily_ohlcv = pd.read_csv("1_daily_ohlcv.csv", parse_dates=["date"])
+daily_ohlcv = pd.read_csv("datasets/1_daily_ohlcv.csv", parse_dates=["date"])
 
 weekly_list = []
 
@@ -33,7 +33,7 @@ weekly_ohlcv = weekly_ohlcv[
 
 weekly_ohlcv = weekly_ohlcv.sort_values(["coin", "week"]).reset_index(drop=True)
 
-weekly_ohlcv.to_csv("2_weekly_ohlcv.csv", index=False)
+weekly_ohlcv.to_csv("datasets/2_weekly_ohlcv.csv", index=False)
 
 print(weekly_ohlcv.head())
 print(weekly_ohlcv.shape)

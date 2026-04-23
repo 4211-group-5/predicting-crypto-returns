@@ -17,7 +17,7 @@ def get_fred_series(series_id, name, start_date=START_DATE, end_date=END_DATE):
     return df.sort_values("date")
 
 
-#daily indicators
+# daily indicators
 
 daily_series = {
     "sp500": "SP500",
@@ -36,7 +36,7 @@ for var_name, series_id in daily_series.items():
 daily_macro = pd.concat(daily_frames, axis=1).reset_index().sort_values("date")
 
 
-#Gold from yfinance
+# Gold from yfinance
 
 print("Downloading gold proxy from yfinance: GLD")
 gld = yf.download(
@@ -89,9 +89,9 @@ macro_weekly_market["wti_ret_1w"] = macro_weekly_market["wti"].pct_change()
 macro_weekly_market["gold_ret_1w"] = macro_weekly_market["gold"].pct_change()
 
 
-#Monthly indicators
+# Monthly indicators
 
-#convert EPU daily -> monthly 
+# convert EPU daily -> monthly 
 epu_daily = get_fred_series("USEPUINDXD", "epu")
 epu_monthly = (
     epu_daily.set_index("date")
@@ -113,30 +113,30 @@ monthly_macro = monthly_macro.merge(baa, on="date", how="outer")
 monthly_macro = monthly_macro.merge(cpi, on="date", how="outer")
 monthly_macro = monthly_macro.sort_values("date")
 
-#fix CPI missing month
+# fix CPI missing month
 monthly_macro["cpi"] = monthly_macro["cpi"].ffill()
 
-#get monthly variables
+# get monthly variables
 monthly_macro["dfy"] = monthly_macro["baa"] - monthly_macro["aaa"]
 monthly_macro["cpi_inflation_mom"] = monthly_macro["cpi"].pct_change(1)
 
-#create month key
+# create month key
 monthly_macro["month"] = monthly_macro["date"].dt.to_period("M")
 
-#keep only latest reading per month
+# keep only latest reading per month
 monthly_macro = (
     monthly_macro.sort_values("date")
     .groupby("month", as_index=False)
     .last()
 )
 
-#weekly grid and assign month key
+# weekly grid and assign month key
 weekly_grid = pd.DataFrame({
     "week": pd.date_range(start=START_DATE, end=END_DATE, freq="W-SUN")
 })
 weekly_grid["month"] = weekly_grid["week"].dt.to_period("M")
 
-#merge monthly indicators by month
+# merge monthly indicators by month
 macro_weekly_monthly = weekly_grid.merge(
     monthly_macro[[
         "month", "epu", "teu", "rfree", "aaa", "baa", "dfy", "cpi", "cpi_inflation_mom"
@@ -146,7 +146,7 @@ macro_weekly_monthly = weekly_grid.merge(
 ).drop(columns=["month"])
 
 
-#TMS
+# TMS
 
 tms = get_fred_series("T10Y3M", "tms")
 tms_weekly = (
@@ -158,7 +158,7 @@ tms_weekly = (
 )
 
 
-#merge macro data
+# merge macro data
 
 macro_weekly = macro_weekly_market.merge(macro_weekly_monthly, on="week", how="outer")
 macro_weekly = macro_weekly.merge(tms_weekly, on="week", how="outer")
@@ -170,7 +170,7 @@ macro_weekly = macro_weekly[
     (macro_weekly["week"] <= pd.Timestamp(END_DATE))
 ].copy()
 
-macro_weekly.to_csv("5_macro_factors_weekly.csv", index=False)
+macro_weekly.to_csv("datasets/5_macro_factors_weekly.csv", index=False)
 
 print(macro_weekly.head(15))
 print(macro_weekly.shape)

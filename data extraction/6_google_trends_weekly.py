@@ -29,7 +29,7 @@ windows = [
 ]
 
 
-def fetch_keyword_trends_weekly(keyword, windows, sleep_sec=2):
+def fetch_keyword_trends_weekly(keyword, windows, sleep_sec=4):
     all_parts = []
 
     for start_date, end_date in windows:
@@ -90,7 +90,7 @@ google_trends = google_trends[
     (google_trends["week"] <= "2025-12-31")
 ]
 
-google_trends.to_csv("6_google_trends_weekly.csv", index=False)
+google_trends.to_csv("datasets/6_google_trends_weekly.csv", index=False)
 
 print(google_trends.head())
 print(google_trends.shape)

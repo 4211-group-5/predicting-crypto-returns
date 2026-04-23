@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-weekly_ohlcv = pd.read_csv("2_weekly_ohlcv.csv", parse_dates=["week"])
+weekly_ohlcv = pd.read_csv("datasets/2_weekly_ohlcv.csv", parse_dates=["week"])
 
 
 def compute_rsi(series, window=14):
@@ -73,7 +73,7 @@ for coin, group in weekly_ohlcv.groupby("coin"):
 weekly_features = pd.concat(feature_list, ignore_index=True)
 weekly_features = weekly_features.sort_values(["coin", "week"]).reset_index(drop=True)
 
-weekly_features.to_csv("3_weekly_features.csv", index=False)
+weekly_features.to_csv("datasets/3_weekly_features.csv", index=False)
 
 print(weekly_features.head())
 print(weekly_features.shape)

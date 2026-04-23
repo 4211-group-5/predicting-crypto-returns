@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-weekly_features = pd.read_csv("3_weekly_features.csv", parse_dates=["week"])
+weekly_features = pd.read_csv("datasets/3_weekly_features.csv", parse_dates=["week"])
 
 panel = weekly_features.sort_values(["coin", "week"]).copy()
 
@@ -35,7 +35,7 @@ for week, group in panel.groupby("week"):
     })
 
 crypto_factors = pd.DataFrame(factor_rows).sort_values("week").reset_index(drop=True)
-crypto_factors.to_csv("4_crypto_factors_weekly.csv", index=False)
+crypto_factors.to_csv("datasets/4_crypto_factors_weekly.csv", index=False)
 
 print(crypto_factors.head())
 print(crypto_factors.shape)

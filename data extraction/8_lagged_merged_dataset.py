@@ -2,7 +2,7 @@ import pandas as pd
 
 COMMON_MODEL_START_DATE = "2018-01-07"
 
-df = pd.read_csv("7_merged_weekly_dataset.csv", parse_dates=["week"])
+df = pd.read_csv("datasets/7_merged_weekly_dataset.csv", parse_dates=["week"])
 df = df.sort_values(["coin", "week"]).copy()
 
 target_cols = ["ret_1w", "log_ret_1w"]
@@ -40,14 +40,14 @@ google_trend_cols = [c for c in df.columns if c.startswith("gt_")]
 common_to_lag.extend(google_trend_cols)
 
 
-#lag coin variables within each coin
+# lag coin variables within each coin
 
 for col in coin_specific_to_lag:
     if col in df.columns:
         df[f"{col}_lag1"] = df.groupby("coin")[col].shift(1)
 
 
-#lag common variables by week
+# lag common variables by week
 
 existing_common = [c for c in common_to_lag if c in df.columns]
 
@@ -62,7 +62,7 @@ for col in existing_common:
     weekly_common[f"{col}_lag1"] = weekly_common[col].shift(1)
 
 
-#add 1 month lag for monthly variables
+# add 1 month lag for monthly variables
 
 weekly_common["month"] = weekly_common["week"].dt.to_period("M")
 
@@ -96,7 +96,7 @@ lagged_common_cols = (
 df = df.merge(weekly_common[lagged_common_cols], on="week", how="left")
 
 
-#clean return lags
+# clean return lags
 
 df["ret_1w_ago"] = df.groupby("coin")["ret_1w"].shift(1)
 df["ret_2w_ago"] = df.groupby("coin")["ret_1w"].shift(2)
@@ -115,7 +115,7 @@ final_model_df = final_model_df[
 
 final_model_df = final_model_df.sort_values(["coin", "week"]).reset_index(drop=True)
 
-final_model_df.to_csv("8_lagged_merged_dataset.csv", index=False)
+final_model_df.to_csv("datasets/8_lagged_merged_dataset.csv", index=False)
 
 print(final_model_df.head())
 print(final_model_df.shape)

@@ -86,7 +86,7 @@ for project_coin, api_symbol in COIN_SYMBOL_MAP.items():
     all_daily.append(df_coin)
 
 daily_ohlcv = pd.concat(all_daily, ignore_index=True)
-daily_ohlcv.to_csv("1_daily_ohlcv.csv", index=False)
+daily_ohlcv.to_csv("datasets/1_daily_ohlcv.csv", index=False)
 
 print(daily_ohlcv.head())
 print(daily_ohlcv.shape)
