@@ -65,7 +65,7 @@ def main():
             print(f"Error fitting auto_arima for {coin}: {e}")
             continue
 
-        window_size = len(train_data)
+        window_size = 260
         history_y = list(train_data.values)
         history_exog = train_exog.values.tolist()
         
