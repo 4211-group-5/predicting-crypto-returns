@@ -2,11 +2,11 @@ import pandas as pd
 import numpy as np
 import statsmodels.api as sm
 
-INPUT_CSV = "10_dropped_variables_and_renamed.csv"
+INPUT_CSV = "datasets/10_dropped_variables_and_renamed.csv"
 
 # Match requested output filenames
-OUTPUT_RMSE = "ols_rsme.csv"
-OUTPUT_RESIDUALS = "ols_residuals.csv"
+OUTPUT_RMSE = "results/ordinary_least_squares/ols_rsme.csv"
+OUTPUT_RESIDUALS = "results/ordinary_least_squares/ols_residuals.csv"
 
 TARGET = "ret_1w"
 

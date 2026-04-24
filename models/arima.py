@@ -4,8 +4,7 @@ from pmdarima import auto_arima
 import statsmodels.api as sm
 
 def main():
-    data_path = '../datasets/10_dropped_variables_and_renamed.csv'
-    results_folder = '../results/arima/'
+    data_path = 'datasets/10_dropped_variables_and_renamed.csv'
     
     # Loading data from data_path
     df = pd.read_csv(data_path)
@@ -113,7 +112,7 @@ def main():
         if results:
             results_df = pd.DataFrame(results)
             # Save results to output_path
-            results_df.to_csv(f"{results_folder}arima_forecast_residuals.csv", index=False)
+            results_df.to_csv(f"results/residuals/arima_residuals.csv", index=False)
         
     # Drop rows with NaN predictions
     results_df_clean = results_df.dropna(subset=['residual'])
@@ -133,7 +132,7 @@ def main():
     print(rmse_per_coin)
 
     # Save RMSE results
-    rmse_per_coin.to_csv(f"{results_folder}arima_rmse_per_coin.csv", index=False)
+    rmse_per_coin.to_csv(f"results/rmse/arima_rmse_per_coin.csv", index=False)
 
 if __name__ == '__main__':
     main()
