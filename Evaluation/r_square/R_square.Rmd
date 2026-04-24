@@ -13,7 +13,6 @@ knitr::opts_chunk$set(echo = TRUE)
 install.packages('tidyverse')
 install.packages('lubridate')
 install.packages('zoo')
-
 ```
 
 ```{r}
@@ -23,11 +22,9 @@ library(zoo)
 library(lubridate)
 ```
 
-## Including Plots
-
-You can also embed plots, for example:
 ```{r}
-actual_data <- read.csv("../datasets/10_dropped_variables_and_renamed.csv")
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+actual_data <- read.csv("../../datasets/10_dropped_variables_and_renamed.csv")
 ```
 
 ```{r}
@@ -52,32 +49,23 @@ bch <- coin_expanding_window_predict %>%
 ```
 
 ```{r}
-calculate_r_square <- function(pred, actual, mean){
-  1 - ((sum((actual - pred)^2)) / (sum((actual - mean)^2)))
-}
-
 #calculate_r_square <- function(pred, actual, mean){
- # 1 - ((sum((actual - pred)^2)) / (sum((actual)^2)))
+#  1 - ((sum((actual - pred)^2)) / (sum((actual - mean)^2)))
 #}
+
+calculate_r_square <- function(pred, actual, mean){
+  1 - ((sum((actual - pred)^2)) / (sum((actual)^2)))
+}
 
 calculate_rmse <- function(pred, actual){
   sqrt(sum((actual-pred)^2))
 }
 ```
 
-```{r}
-#pred <- (rf_data %>% filter(coin == "BTC"))$prediction
-#actual <- (rf_data %>% filter(coin == "BTC"))$actual
-
-#pred_actual_error <- sqrt(mean((pred-actual)^2))
-
-#sqrt(mean((actual)^2))
-
-```
 
 ## Arima
 ```{r}
-arima_data <- read.csv("../results/arima/arima_residuals.csv")
+arima_data <- read.csv("../../results/residuals/arima_residuals.csv")
 
 unique_coins <- arima_data$coin %>%
   unique()
@@ -122,7 +110,7 @@ all_r_squared[['arima']][['all']] <- r_squared_temp
 
 ## Random Forest
 ```{r}
-rf_data <- read.csv("../results/random_forest/rf_residuals.csv")
+rf_data <- read.csv("../../results/residuals/rf_residuals.csv")
 
 unique_coins <- rf_data$coin %>%
   unique()
@@ -163,7 +151,7 @@ all_r_squared[['random_forest']][['all']] <- r_squared_temp
 
 ## Panel Data 
 ```{r}
-pd_data <- read.csv("../results/fe_regression/panel_fe_residuals.csv")
+pd_data <- read.csv("../../results/residuals/fe_regression_residuals.csv")
 
 unique_coins <- pd_data$coin %>%
   unique()
@@ -203,7 +191,7 @@ all_r_squared[['panel_fe']][['all']] <- r_squared_temp
 ```
 
 ```{r}
-ols_data <- read.csv("../results/ordinary_least_squares/ols_residuals.csv")
+ols_data <- read.csv("../../results/residuals/ols_residuals.csv")
 
 unique_coins <- ols_data$coin %>%
   unique()
@@ -245,7 +233,7 @@ all_r_squared[['ols']][['all']] <- r_squared_temp
 
 ## PLS
 ```{r}
-pls_data <- read.csv("../results/partial_least_squares/pls_residuals.csv") %>%
+pls_data <- read.csv("../../results/residuals/pls_residuals.csv") %>%
   mutate(week = format(as.Date(week), "%d/%m/%Y"))
   
 

@@ -198,7 +198,6 @@ rf.rolling.window=function(Y,nprev,indice=1, ntree, mtry){
   
   return(list("pred"=save.pred,"errors"=errors,"save.importance"=save.importance)) #return forecasts, history of variable importance, and RMSE and MAE for the period.
 }
-
 ```
 
 ```{r}
