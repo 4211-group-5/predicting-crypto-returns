@@ -117,7 +117,7 @@ for (coin in coins_to_run) {
   results_shap[[coin]] <- shap_summary
   
   # save per coin
-  write.csv(shap_summary, paste0("shap_summary_", coin, ".csv"), row.names = FALSE)
+  write.csv(shap_summary, paste0("feature analysis/SHAP/shap_summary_", coin, ".csv"), row.names = FALSE)
 }
 
 
@@ -125,4 +125,4 @@ for (coin in coins_to_run) {
 
 final_shap <- bind_rows(results_shap, .id = "coin")
 
-write.csv(final_shap, "shap_summary_all_coins.csv", row.names = FALSE)
+write.csv(final_shap, "feature analysis/SHAP/shap_summary_all_coins.csv", row.names = FALSE)
