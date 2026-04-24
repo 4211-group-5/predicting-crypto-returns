@@ -5,11 +5,11 @@ library(fastshap)
 
 # 1. LOAD DATA + RESULTS
 
-df <- read.csv("10_dropped_variables_and_renamed.csv")
+df <- read.csv("../../datasets/10_dropped_variables_and_renamed.csv")
 
 df$week <- as.Date(df$week, format="%d/%m/%Y")
 
-best_results <- readRDS("results_all_coins_15000.rds")
+best_results <- readRDS("../../results/random_forest/results_all_coins_15000.rds")
 
 
 # 2. SETTINGS
