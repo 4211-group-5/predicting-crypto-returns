@@ -26,7 +26,7 @@ install.packages('fastshap')
 install.packages('doSNOW')
 ```
 
-```{r, include=FALSE}
+```{r}
 library(dplyr)
 library(lubridate)
 library(readr)
@@ -42,6 +42,7 @@ library(doSNOW)
 ```
 
 ```{r}
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 data <- read.csv("../datasets/10_dropped_variables_and_renamed.csv")
 ```
 
@@ -57,6 +58,7 @@ df_clean <- data %>%
   select(-ret_1w_original)
 ```
 
+
 ## Filter out one coin
 ```{r}
 df_clean_BCH <- df_clean %>%
@@ -64,44 +66,8 @@ df_clean_BCH <- df_clean %>%
 
 ```
 
-## ADF Test to Check for Stationarity 
-```{r}
-list_of_non_stationary_2 <- list()
-
-df_clean_BCH_2 <- df_clean_BCH
-# Loop through each variable (excluding date)
-for (i in names(df_clean_BCH_2 %>% select(-c(1,2)))) {
-  adf_p <- tryCatch(adf.test(df_clean_BCH_2[[i]], k = 0)$p.value,
-    error = function(e) NA
-  )
-  if (!is.na(adf_p) && adf_p > 0.05) {
-    list_of_non_stationary_2 <- c(list_of_non_stationary_2, i)
-  }
-}
 
 
-# ADF test with trend
-list_of_non_stationary_trend <- list()
-for (i in 3:ncol(df_clean_BCH)) {
-  test_stat <- tryCatch(ur.df(df_clean_BCH[[i]], type = "trend", selectlags = "AIC")@teststat[1],
-    error = function(e) NA
-  )
-  critical_val <- tryCatch(ur.df(df_clean_BCH[[i]], type = "trend", selectlags = "AIC")@cval,
-    error = function(e) NA
-  )
-  if (!is.na(test_stat) && !is.na(critical_val[2]) && test_stat > critical_val[2]) {
-    list_of_non_stationary_trend <- c(list_of_non_stationary_trend, i)
-  }
-}
-
-cat("Variables non-stationary without trend:\n")
-print(unlist(list_of_non_stationary_2))
-cat("Variables non-stationary with trend:\n")
-print(unlist(list_of_non_stationary_trend))
-```
-
-
-## Random Forest Model - Rolling Window  
 ```{r}
 runrf <- function(Y, indice, n_lags = 0, ntree, mtry) {
 
@@ -167,7 +133,7 @@ runrf_shap <- function(Y, indice, n_lags = 0, ntree, mtry) {
   ))
 }
 
-rf.rolling.window_shap=function(Y,nprev,indice=1, ntree, mtry){
+rf.rolling.window_shap =function(Y,nprev,indice=1, ntree, mtry){
   save.importance=list()
   save.pred=matrix(NA,nprev,1)
   save.shap=list()   # NEW
@@ -239,27 +205,31 @@ rf.rolling.window=function(Y,nprev,indice=1, ntree, mtry){
 #Goes through mtry and ntree and selects best ntree based on lowest RMSE on validation Set 
 rf.select_parameter = function(Y, nprev, indice = 1, parameters_ntree, parameters_mtry){
   rmse_all <- list()
-  best_parameter <- NA 
+  best_parameter_ntree <- NA 
+  best_parameter_mtry <- NA
   lowest_rmse <- Inf 
+  
   for (i in parameters_ntree){
     for (j in parameters_mtry){
       curr_model = rf.rolling.window(Y, nprev, indice, i, j)
-      print(i)
-      rmse =curr_model$errors['rmse']
+      rmse = curr_model$errors['rmse']
       preds = curr_model$pred 
-      print(preds)
-      rmse_all[[as.character(i)]]=rmse
+      
+      # Combined key of ntree and mtry 
+      key <- paste0("ntree_", i, "_mtry_", j)
+      rmse_all[[key]] <- rmse
+      
       if (rmse <= lowest_rmse){
         best_parameter_ntree = i 
         best_parameter_mtry = j
         lowest_rmse <- rmse 
-        print(lowest_rmse)
-    }
+      }
     }
   }
   return(list(best_parameter_ntree, best_parameter_mtry, rmse_all))
 }
 ```
+
 
 ## Check for ballpark numbers for mtry 
 ```{r}
@@ -276,21 +246,20 @@ test_BCH = df_clean_BCH %>% filter(week > "2024-12-30") %>%
   select(-c("coin", "week"))
 
 
-x1 = model.matrix(ret_1w ~ .-1, data = train_BCH) # training data
-x2 = model.matrix(ret_1w ~ .-1, data = valid_BCH) # validation data
-x3 = model.matrix(ret_1w ~ .-1, data = test_BCH) # test data
-y1=train_BCH$ret_1w # y for training data
-y2=valid_BCH$ret_1w  # y for validation data
+x1 = model.matrix(ret_1w ~ .-1, data = train_BCH) #training data
+x2 = model.matrix(ret_1w ~ .-1, data = valid_BCH) #validation data
+x3 = model.matrix(ret_1w ~ .-1, data = test_BCH) #test data
+y1=train_BCH$ret_1w #y for training data
+y2=valid_BCH$ret_1w  #y for validation data
 y3=test_BCH$ret_1w  # y for test data
+
 
 
 rftune=tuneRF(x1, y1, mtryStart=floor(sqrt(ncol(x1))), stepFactor=2, improve=0.05, nodesize=5, ntree=500, doBest=TRUE, plot=FALSE, trace=FALSE) 
 rftune$mtry #tuned number of predictors
 ```
-
+## Coin Numbers 
 ```{r}
-set.seed(4211)
-
 #Extract unique coins 
 all_coins <- c(unique(df_clean$coin))
 results_all_coins = list()
@@ -304,8 +273,13 @@ valid_BCH_num = nrow(df_clean_BCH %>% filter(week > "2022-12-30") %>%
 
 test_BCH_num = nrow(df_clean_BCH %>% filter(week > "2024-12-30") %>%
   filter(week <= "2026-01-08")) 
+```
 
+## Parallel Computing to save all coins and its best parameter
+## Note: This chunk will take very long to run, best run is saved as results/random_forest/results_all_coins_15000.rds
+```{r}
 # Setup cluster
+set.seed(4211)
 n_cores <- parallel::detectCores() - 1
 cl <- makeCluster(n_cores)
 registerDoSNOW(cl)
@@ -343,8 +317,8 @@ results_all_coins <- foreach(
     as.matrix(train_valid_df),
     valid_BCH_num,
     indice = 1,
-    c(50,200,500,1000,5000),
-    c(1,3,7,15,25)
+    c(10,50,100,150,300,500,1000,5000),
+    c(1,2,3,4,5,7,15,25,35,47)
   )
   
   best_param_ntree <- rf_train_data[[1]]
@@ -390,163 +364,18 @@ results_all_coins <- setNames(results_all_coins, all_coins)
 saveRDS(results_all_coins, "results_all_coins_15000.rds")
 ```
 
+
+
+## Saving Best Results 
 ```{r}
-set.seed(4211)
-best_results <- readRDS("results_all_coins_15000.rds")
 
-for (i in names(best_results)){
-  best_mtry <- best_results[[i]][['best_mtry']]
-  best_ntree <- best_results[[i]][['best_ntree']]
-  
-   ## Prediction data
-  preds_df <- df_clean %>%
-    filter(coin == i) %>%
-    filter(week >= "2018-01-01") %>%
-    filter(week < "2026-01-09") %>%
-    arrange(week) %>%
-    tail(test_BCH_num + train_BCH_num) %>%
-    select(-c("week", "coin"))
-  
-  ## Rolling prediction
-  model_preds <- rf.rolling.window_shap(
-    as.matrix(preds_df),
-    test_BCH_num,
-    indice = 1,
-    best_ntree,
-    best_mtry
-  )
-  
-  ## SHAP Values 
-   result <- list(
-    model_preds = model_preds,
-    best_ntree = best_ntree,
-    best_mtry = best_mtry
-  )
-   
-   saveRDS(result, paste0("temp_result_shap", i, ".rds"))
-  
-  
-  
-}
-```
+best_results <- readRDS("../results/random_forest/results_all_coins_15000.rds")
 
 
-```{r}
-#Extract unique coins 
-all_coins <- c(unique(df_clean$coin))
-results_all_coins = list()
-
-#Number of train/test/valid
-train_BCH_num = nrow(df_clean_BCH %>% filter(week <= "2022-12-30") %>%
-  filter(week >= "2018-01-01"))
-
-valid_BCH_num = nrow(df_clean_BCH %>% filter(week > "2022-12-30") %>%
-  filter(week <= "2024-12-30"))
-
-test_BCH_num = nrow(df_clean_BCH %>% filter(week > "2024-12-30") %>%
-  filter(week <= "2026-01-08")) 
-
-##Loop Through Each Coin, Find best parameter for ntree using validation set, predict on test set 
-for (i in all_coins){
-  coin_remove_var <- df_clean %>%
-    filter(coin == i) 
-  
-  ## Create data for train and validation for parameter selection 
-  train_valid_df = coin_remove_var %>% filter(week <= "2024-12-30") %>%
-  filter(week >= "2018-01-01") %>%
-  arrange(week) %>%
-  select(-c("week", "coin"))
-  
-  ## Training to select parameters 
-  rf_train_data <- rf.select_parameter(as.matrix(train_valid_df), valid_BCH_num, indice = 1, c(10,50,100,200,500,1000,5000), c(1,3,7,floor(47/3)))
-  best_param_ntree <- rf_train_data[[1]]
-  best_param_mtry <- rf_train_data[[2]]
-  
-  ## Create data for prediction 
-  preds_df <- coin_remove_var %>%
-    filter(week >= "2018-01-01") %>%
-    filter(week < "2026-01-09") %>%
-    arrange(week) %>%
-    tail(test_BCH_num + train_BCH_num) %>%
-    select(-c("week", "coin"))
-  
-  ## Predict model based on best parameters
-  model_preds <- rf.rolling.window(as.matrix(preds_df), test_BCH_num, indice = 1, best_param_ntree, best_param_mtry)
-  
-  results_all_coins[[i]] <- list(
-  model_preds = model_preds,
-  best_ntree = best_param_ntree,
-  best_mtry = best_param_mtry
-)
-  
-  saveRDS(results_all_coins, "results_all_coins_5.rds")
-  
-}
-
-
-```
-
-
-```{r}
-MSE <- function(pred, truth){ #start and end body of the function by { } - same as a loop 
-  return(summary(lm((truth-pred)^2~1))$coef[1:2]) #end function with a return(output) statement. Here we can go straight to return because the object of interest is a simple function of inputs
-}
-rft.pred = predict(rftune, newdata=x3)
-cbind(rft.pred, y3)
-MSE(rft.pred,y3)
-```
-
-
-```{r}
-library(car)
-
-vif_with_alias_fix <- function(formula, data, threshold = 10) {
-  # Step 1: Fit initial model
-  model <- lm(formula, data = data)
-  
-  # Step 2: Detect aliased (perfectly collinear) variables
-  aliased <- alias(model)$Complete
-  removed_vars <- rownames(aliased)
-  
-  if (length(removed_vars) > 0) {
-    cat("Removed aliased variables:\n")
-    print(removed_vars)
-    
-    # Remove them from the dataset
-    data <- data[, !colnames(data) %in% removed_vars]
-    
-    # Refit model
-    model <- lm(formula, data = data)
-  } else {
-    cat("No aliased variables detected.\n")
-  }
-  
-  # Step 3: Compute VIFs
-  vifs <- vif(model)
-  
-  # Step 4: Print variables with VIF > threshold
-  high_vif <- vifs[vifs > threshold]
-  if (length(high_vif) == 0) {
-    cat("No variables with VIF >", threshold, "\n")
-  } else {
-    cat("Variables with VIF >", threshold, ":\n")
-    print(high_vif)
-  }
-  
-  # Step 5: Return model and removed variables
-  return(list(model = model, removed_alias = removed_vars, high_vif = high_vif))
-}
-
-
-```
-
-
-
-```{r}
 df_preds <- data.frame()
 for (i in all_coins){
   #print(i)
-  df_preds_temp <- data.frame(prediction = results_all_coins[[i]]$model_preds$pred) 
+  df_preds_temp <- data.frame(prediction = best_results[[i]]$model_preds$pred) 
   
   df_actual <- df_clean %>%
     filter(coin == i) %>%
@@ -567,11 +396,13 @@ rownames(df_preds) <- NULL
 write.csv(df_preds, "../results/residuals/rf_residuals.csv")
 ```
 
+
+## Saving RMSE of Best Result 
 ```{r}
 df_rmse <- data.frame()
 
 for (i in all_coins){
-  df_temp_rmse <- data.frame(rmse = results_all_coins[[i]]$model_preds$errors[1], mae =  results_all_coins[[i]]$model_preds$errors[2]) %>%
+  df_temp_rmse <- data.frame(rmse = best_results[[i]]$model_preds$errors[1], mae =  best_results[[i]]$model_preds$errors[2]) %>%
     mutate(coin = i) %>%
     select(coin, rmse, mae)
   df_rmse <- rbind(df_temp_rmse, df_rmse)
