@@ -3,41 +3,19 @@ import pandas as pd
 from pathlib import Path
 import os
 
-def standardise_pls_data():
-    pls_folder = Path('../results/partial_least_squares/predictions')
-
-    pls_data = []
-    for file in pls_folder.iterdir():
-        if file.is_file():
-            df = pd.read_excel(file)
-            pls_data.append(df)
-
-    pls_df = pd.concat(pls_data, ignore_index=True)
-
-    # rename prediction column
-    pls_df.rename(columns={"pred": "prediction"}, inplace=True)
-
-    # save to pls folder
-    pls_df.to_csv(f"../results/partial_least_squares/pls_residuals.csv", index=False)
-
 def main():
-    standardise_pls_data()
-
     # current working directory
-    results_folder = '../results/'
+    results_folder = 'results/residuals'
 
-    # get all model folders in results folder
-    model_folders = [f.path for f in os.scandir(results_folder) if f.is_dir()]
+    # get all model files in results folder
+    model_files = list(Path(results_folder).glob('*residuals.csv'))
 
-    for folder in model_folders:
-        current_model_folder = folder
-        current_model_name = os.path.basename(folder)
-
-        # get file with residual in name
-        data_path = list(Path(current_model_folder).glob('*residuals.csv'))[0]
+    for file in model_files:
+        current_model_name = os.path.basename(file).replace('_residuals.csv', '')
+        current_model_folder = f"results/plots/{current_model_name}"
 
         # Loading results from data_path
-        df = pd.read_csv(data_path)
+        df = pd.read_csv(file)
 
         # Ensure 'week' column is in datetime format
         try:
