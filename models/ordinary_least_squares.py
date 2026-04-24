@@ -5,8 +5,8 @@ import statsmodels.api as sm
 INPUT_CSV = "datasets/10_dropped_variables_and_renamed.csv"
 
 # Match requested output filenames
-OUTPUT_RMSE = "results/ordinary_least_squares/ols_rsme.csv"
-OUTPUT_RESIDUALS = "results/ordinary_least_squares/ols_residuals.csv"
+OUTPUT_RMSE = "results/rmse/ols_rmse.csv"
+OUTPUT_RESIDUALS = "results/residuals/ols_residuals.csv"
 
 TARGET = "ret_1w"
 

@@ -11,7 +11,22 @@ This is an R Markdown document. Markdown is a simple formatting syntax for autho
 
 When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
-```{r}
+```{r, include=FALSE}
+install.packages('dplyr')
+install.packages('lubridate')
+install.packages('readr')
+install.packages('tidyverse')
+install.packages('randomForest')
+install.packages('zoo')
+install.packages('tseries')
+install.packages('caret')
+install.packages('foreach')
+install.packages('doParallel')
+install.packages('fastshap')
+install.packages('doSNOW')
+```
+
+```{r, include=FALSE}
 library(dplyr)
 library(lubridate)
 library(readr)
@@ -23,10 +38,11 @@ library(caret)
 library(foreach)
 library(doParallel)
 library(fastshap)
+library(doSNOW)
 ```
 
 ```{r}
-data <- read.csv("../../datasets/10_dropped_variables_and_renamed.csv")
+data <- read.csv("../datasets/10_dropped_variables_and_renamed.csv")
 ```
 
 ## Forward Fill All Empty Values for CPI 
@@ -40,7 +56,6 @@ df_clean <- data %>%
   ) %>%
   select(-ret_1w_original)
 ```
-
 
 ## Filter out one coin
 ```{r}
@@ -80,7 +95,7 @@ for (i in 3:ncol(df_clean_BCH)) {
 }
 
 cat("Variables non-stationary without trend:\n")
-print(unlist(list_of_non_stationary))
+print(unlist(list_of_non_stationary_2))
 cat("Variables non-stationary with trend:\n")
 print(unlist(list_of_non_stationary_trend))
 ```
@@ -152,7 +167,7 @@ runrf_shap <- function(Y, indice, n_lags = 0, ntree, mtry) {
   ))
 }
 
-rf.rolling.window_shap =function(Y,nprev,indice=1, ntree, mtry){
+rf.rolling.window_shap=function(Y,nprev,indice=1, ntree, mtry){
   save.importance=list()
   save.pred=matrix(NA,nprev,1)
   save.shap=list()   # NEW
@@ -246,7 +261,6 @@ rf.select_parameter = function(Y, nprev, indice = 1, parameters_ntree, parameter
 }
 ```
 
-
 ## Check for ballpark numbers for mtry 
 ```{r}
 train_BCH = df_clean_BCH %>% filter(week <= "2022-12-30") %>%
@@ -262,13 +276,12 @@ test_BCH = df_clean_BCH %>% filter(week > "2024-12-30") %>%
   select(-c("coin", "week"))
 
 
-x1 = model.matrix(ret_1w ~ .-1, data = train_BCH) #training data
-x2 = model.matrix(ret_1w ~ .-1, data = valid_BCH) #validation data
-x3 = model.matrix(ret_1w ~ .-1, data = test_BCH) #test data
-y1=train_BCH$ret_1w #y for training data
-y2=valid_BCH$ret_1w  #y for validation data
+x1 = model.matrix(ret_1w ~ .-1, data = train_BCH) # training data
+x2 = model.matrix(ret_1w ~ .-1, data = valid_BCH) # validation data
+x3 = model.matrix(ret_1w ~ .-1, data = test_BCH) # test data
+y1=train_BCH$ret_1w # y for training data
+y2=valid_BCH$ret_1w  # y for validation data
 y3=test_BCH$ret_1w  # y for test data
-
 
 
 rftune=tuneRF(x1, y1, mtryStart=floor(sqrt(ncol(x1))), stepFactor=2, improve=0.05, nodesize=5, ntree=500, doBest=TRUE, plot=FALSE, trace=FALSE) 
@@ -276,10 +289,6 @@ rftune$mtry #tuned number of predictors
 ```
 
 ```{r}
-library(foreach)
-library(doParallel)
-library(doSNOW)
-
 set.seed(4211)
 
 #Extract unique coins 
@@ -555,7 +564,7 @@ for (i in all_coins){
 
 rownames(df_preds) <- NULL
 
-write.csv(df_preds, "rf_coin_residuals.csv")
+write.csv(df_preds, "../results/residuals/rf_residuals.csv")
 ```
 
 ```{r}
@@ -570,7 +579,7 @@ for (i in all_coins){
 
 rownames(df_rmse) <- NULL
 
-write.csv(df_rmse, "rf_coin_summary.csv")
+write.csv(df_rmse, "../results/rmse/rf_rmse.csv")
 ```
 
 

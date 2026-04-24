@@ -132,7 +132,7 @@ def main():
     print(rmse_per_coin)
 
     # Save RMSE results
-    rmse_per_coin.to_csv(f"results/rmse/arima_rmse_per_coin.csv", index=False)
+    rmse_per_coin.to_csv(f"results/rmse/arima_rmse.csv", index=False)
 
 if __name__ == '__main__':
     main()
