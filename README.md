@@ -52,7 +52,7 @@ cd ..
   Open the following file and click **Run > Run All Cells** to execute: `models/fixed_effects_regression.ipynb`
 
 - **Partial Least Squares (PLS)**:
-  Open the following file and click **Run > Run All Cells** to execute: `models/pls.ipynb`
+  Open the following file and click **Run > Run All Cells** to execute: `models/partial_least_squares.ipynb`
 
 - **Random Forest**:
   Open `models/random_forest/randomforest.Rmd` using **RStudio**. You can run the code chunks sequentially, or click the **Knit** button to generate the final report (HTML/PDF/Word). 
