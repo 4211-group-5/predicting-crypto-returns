@@ -19,7 +19,7 @@ DSE/QF4211 Group Project
 
 ## Running the Data Extraction Pipeline
 
-The data extraction scripts should be run in sequential order. When running the 5th file ("5_macro_factors_weekly.py"), you will have to get a FRED API key from their website and replace the one in the code with it. You can run them using Python:
+The data extraction scripts should be run in sequential order. When running the 5th file ("5_macro_factors_weekly.py"), you will have to get a FRED API key from (https://fred.stlouisfed.org/docs/api/api_key.html) and replace the one in the code with it. You can run them using Python:
 
 ```bash
 cd "data extraction"
