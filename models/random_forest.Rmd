@@ -346,9 +346,6 @@ results_all_coins <- foreach(
     best_mtry = best_param_mtry
   )
   
-  # ✅ SAFE checkpoint save (one file per coin)
-  saveRDS(result, paste0("temp_result_", i, ".rds"))
-  
   result
 }
 
